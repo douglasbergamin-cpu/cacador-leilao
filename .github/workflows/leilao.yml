@@ -1,0 +1,26 @@
+name: Caçador de Leilões
+
+on:
+  schedule:
+    - cron: '0 9,15 * * *' # Roda todo dia às 09:00 e às 15:00
+  workflow_dispatch: # Permite clicar no botão "Run workflow" manualmente
+
+jobs:
+  run-leilao:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Executar Robô de Leilões
+        run: python cacador_leilao.py
