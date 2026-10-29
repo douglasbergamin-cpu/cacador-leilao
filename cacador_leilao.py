@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from bs4 import BeautifulSoup
 import requests
 
 # ======================================================
@@ -21,82 +20,52 @@ def enviar_alerta_telegram(mensagem):
   }
   try:
     requests.post(url, json=payload, timeout=10)
-    print("📲 Alerta real enviado com sucesso!")
+    print("📲 Alerta com link real enviado com sucesso!")
   except Exception as e:
     print(f"❌ Erro ao enviar no Telegram: {e}")
 
 
-def raspar_leiloes_reais():
-  """Acessa as páginas de leilão e extrai lotes reais do mercado."""
-  print(
-      "🔍 Varrendo portais de leilão em busca de oportunidades reais na"
-      " região..."
-  )
-
-  # Cabeçalho para simular um navegador real e evitar bloqueios
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      )
-  }
-
-  url_alvo = "https://www.zukerman.com.br/imoveis"
-
-  try:
-    response = requests.get(url_alvo, headers=headers, timeout=15)
-    if response.status_code == 200:
-      soup = BeautifulSoup(response.text, "html.parser")
-
-      # Aqui o BeautifulSoup varre os cards de imóveis reais do site
-      # (Se o site alterar a estrutura HTML, ajustamos a tag exata)
-      cards = soup.find_all("div", limit=5)
-
-      # Para garantir que você receba um lote real funcional imediatamente,
-      # validamos com a estrutura extraída das ofertas ativas do portal:
-      lote_extraido = {
-          "tipo": "Casa / Imóvel Residencial",
-          "localizacao": "Itatiba / SP e Região Metropolitana",
-          "edital_id": "Haste Pública Oficial - Edital Ativo",
-          "valor_mercado": 420000.00,
-          "lance_minimo": 195000.00,
-          "desconto": 53.5,
-          "link_direto": url_alvo,
-      }
-      return lote_extraido
-
-  except Exception as e:
-    print(f"⚠️ Erro ao realizar scraping no site de leilão: {e}")
-
-  return None
-
-
-def executar_varredura():
+def executar_varredura_leiloes():
   horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
   print(f"==================================================")
-  print(f"🏛️ VARREDURA DE LEILÕES COM SCRAPING - {horario_atual}")
+  print(f"🏛️ GERADOR DE LINKS REAIS DE LEILÃO - {horario_atual}")
   print(f"==================================================")
 
-  lote = raspar_leiloes_reais()
+  # Links de busca direta e filtrada nos portais oficiais para a nossa região
+  # (Clicando neles, vais direto para os imóveis/veículos ativos com fotos e editais)
+  portais_reais = [
+      {
+          "nome": "Zuk Leilões (Imóveis - Região Jundiaí/Itatiba/SP)",
+          "url": (
+              "https://www.zukerman.com.br/imoveis/sp/itatiba"
+              "?search=Itatiba"
+          ),
+      },
+      {
+          "nome": "Superbid (Bens e Veículos - Interior SP)",
+          "url": (
+              "https://www.superbid.net/busca?q=Itatiba&state%5B0%5D=SP"
+          ),
+      },
+      {
+          "nome": "Portal e-Leilões (Tribunal de Justiça de SP - TJSP)",
+          "url": (
+              "https://www.e-leiloes.com.br/por-comarca/itatiba-sp"
+          ),
+      },
+  ]
 
-  if lote and lote["desconto"] >= 40.0:
+  for portal in portais_reais:
     mensagem = (
-        f"🚨 *OPORTUNIDADE CAPTURADA DO EDITAL!* 🏛️\n\n"
-        f"🏠 *O que é:* `{lote['tipo']}`\n"
-        f"📍 *Onde é:* `{lote['localizacao']}`\n"
-        f"📄 *Referência:* {lote['edital_id']}\n\n"
-        f"💰 *Avaliação:* R$ {lote['valor_mercado']:,.2f}\n"
-        f"🔥 *Lance Mínimo:* R$ {lote['lance_minimo']:,.2f}\n"
-        f"📉 *Desconto:* *{lote['desconto']}% OFF*\n\n"
-        f"📸 *[CLIQUE AQUI PARA VER AS FOTOS E O EDITAL]"
-        f"({lote['link_direto']})*\n\n"
-        f"⚡ _Extraído automaticamente via robô Python!_"
-    ).replace(",", "X").replace(".", ",").replace("X", ".")
-
+        f"🎯 *BUSCA DIRETA DE LEILÃO REAL* 🏛️\n\n"
+        f"🏢 *Portal:* `{portal['nome']}`\n"
+        f"📍 *Foco:* Itatiba / Jundiaí e Região\n\n"
+        f"🔍 *[CLIQUE AQUI PARA ABRIR OS LOTES REAIS, FOTOS E EDITAIS]"
+        f"({portal['url']})*\n\n"
+        f"⚡ _Acesse o link oficial para ver os leilões ativos agora!_"
+    )
     enviar_alerta_telegram(mensagem)
-  else:
-    print("ℹ️ Nenhum lote atingiu a margem mínima nesta execução.")
 
 
 if __name__ == "__main__":
-  executar_varredura()
+  executar_varredura_leiloes()
