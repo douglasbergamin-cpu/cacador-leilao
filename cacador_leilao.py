@@ -1,16 +1,19 @@
 from datetime import datetime
-import json
-from bs4 import BeautifulSoup
+import os
 import requests
+from bs4 import BeautifulSoup
 
 # ======================================================
-# CONFIGURAÇÕES DO TELEGRAM
+# CONFIGURAÇÕES
 # ======================================================
 TELEGRAM_TOKEN = "9245271479:AAFyUOHNCCMhZDZceyHYYv4AsbRv1iwZa4E"
 TELEGRAM_CHAT_ID = "302880433"
 
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY")
 
-def enviar_alerta_telegram(mensagem):
+
+def enviar_telegram(mensagem):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -24,15 +27,41 @@ def enviar_alerta_telegram(mensagem):
         print(f"Erro ao enviar no Telegram: {e}")
 
 
-def executar_extracao_real():
-    horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    print(f"[{horario_atual}] Iniciando extração de dados estruturados...")
+def criar_github_issue(titulo, corpo):
+    if not GITHUB_TOKEN or not GITHUB_REPOSITORY:
+        print("Token ou Repositório do GitHub não encontrados para criar a Issue.")
+        return
 
-    cidades_alvo = ["itatiba", "jundiaí", "jundiai"]
-    urls_alvo = [
-        "https://www.zukerman.com.br/imoveis/sp/itatiba",
-        "https://www.zukerman.com.br/imoveis/sp/jundiai",
-        "https://www.zukerman.com.br/veiculos"
+    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/issues"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    payload = {
+        "title": titulo,
+        "body": corpo,
+        "labels": ["leilao", "oportunidade"],
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code == 201:
+            print(f"Issue criada com sucesso no GitHub: {titulo}")
+        else:
+            print(f"Erro ao criar Issue: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"Erro na requisição da Issue: {e}")
+
+
+def executar_cacador():
+    horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    print(f"[{horario_atual}] Iniciando varredura com integração de Issues...")
+
+    # Alvos principais para Itatiba, Jundiaí e Veículos
+    alvos = [
+        {"nome": "Zukerman - Imóveis Itatiba", "url": "https://www.zukerman.com.br/imoveis/sp/itatiba", "cidade": "Itatiba"},
+        {"nome": "Zukerman - Imóveis Jundiaí", "url": "https://www.zukerman.com.br/imoveis/sp/jundiai", "cidade": "Jundiaí"},
+        {"nome": "Zukerman - Veículos", "url": "https://www.zukerman.com.br/veiculos", "cidade": "Regional/SP"}
     ]
 
     headers = {
@@ -42,68 +71,69 @@ def executar_extracao_real():
 
     encontrados = 0
 
-    for url in urls_alvo:
+    for alvo in alvos:
         try:
-            print(f"Acessando: {url}")
-            resposta = requests.get(url, headers=headers, timeout=15)
+            print(f"Consultando {alvo['nome']}...")
+            resp = requests.get(alvo["url"], headers=headers, timeout=15)
             
-            if resposta.status_code != 200:
-                print(f"Status HTTP inválido: {resposta.status_code}")
-                continue
-
-            soup = BeautifulSoup(resposta.text, "html.parser")
-
-            # Tenta extrair os dados do Next.js (onde ficam os JSONs dos leilões carregados)
-            script_data = soup.find("script", id="__NEXT_DATA__")
-            if script_data:
-                try:
-                    json_data = json.loads(script_data.string)
-                    # Navega na estrutura do Next.js para achar os lotes (isso varia por página, mas vamos varrer chaves comuns)
-                    # Caso o JSON venha estruturado, extraímos os dados reais aqui
-                    print("Dados __NEXT_DATA__ encontrados com sucesso!")
-                except Exception as e:
-                    print(f"Erro ao decodificar JSON interno: {e}")
-
-            # Varredura profunda de elementos de cards reais na página renderizada
-            # Buscando blocos que contenham títulos de leilões
-            cards = soup.find_all(["a", "div"], class_=lambda x: x and any(c in x.lower() for c in ["card", "lote", "item", "imovel"]))
-            
-            for card in cards:
-                texto_card = card.get_text(" ", strip=True)
-                texto_lower = texto_card.lower()
-
-                # Verifica se menciona a cidade e tem tamanho de descrição real
-                if any(cidade in texto_lower for cidade in cidades_alvo) and len(texto_card) > 30:
-                    # Tenta achar o link dentro ou no próprio card
-                    link_tag = card if card.name == "a" else card.find("a", href=True)
-                    href = link_tag["href"] if link_tag and card.name == "a" else (link_tag["href"] if link_tag else None)
-                    
-                    if href:
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                
+                # Coleta links de lotes/imóveis/veículos específicos na página
+                links_unicos = set()
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    texto = a.get_text(strip=True)
+                    if any(termo in href for termo in ["/imovel/", "/lote/", "/veiculo/"]) and len(texto) > 10:
                         link_completo = href if href.startswith("http") else f"https://www.zukerman.com.br{href}"
-                        
-                        mensagem = (
-                            f"🎯 *LOTE REAL CAPTURADO!* 🏛️\n\n"
-                            f"📌 *Detalhes:* {texto_card[:180]}...\n\n"
-                            f"🔗 *[ABRIR LOTE NO SITE]({link_completo})*\n\n"
-                            f"⚡ _Capturado pelo extrator estruturado_"
-                        )
-                        enviar_alerta_telegram(mensagem)
-                        encontrados += 1
-                        print(f"Lote real enviado: {texto_card[:40]}...")
+                        links_unicos.add((texto, link_completo))
 
-                        if encontrados >= 5:
-                            break
+                # Se achar itens específicos, processa
+                for titulo_lote, link_lote in list(links_unicos)[:3]:
+                    encontrados += 1
+                    msg_telegram = (
+                        f"🎯 *OPORTUNIDADE DE LEILÃO!* 🏛️\n\n"
+                        f"📍 *Região:* {alvo['cidade']}\n"
+                        f"📌 *Item:* {titulo_lote}\n\n"
+                        f"🔗 *[ACESSAR LOTE DIRETAMENTE]({link_lote})*\n\n"
+                        f"⚡ _Capturado em {horario_atual}_"
+                    )
+                    enviar_telegram(msg_telegram)
+
+                    # Cria Issue no GitHub para cada lote encontrado
+                    issue_titulo = f"[{alvo['cidade']}] {titulo_lote[:60]}"
+                    issue_corpo = (
+                        f"### Oportunidade Detectada pelo Robô\n\n"
+                        f"- **Portal:** {alvo['nome']}\n"
+                        f"- **Cidade Alvo:** {alvo['cidade']}\n"
+                        f"- **Descrição:** {titulo_lote}\n"
+                        f"- **Link Direto:** [{link_lote}]({link_lote})\n"
+                        f"- **Data/Hora:** {horario_atual}\n"
+                    )
+                    criar_github_issue(issue_titulo, issue_corpo)
 
         except Exception as e:
-            print(f"Erro ao processar {url}: {e}")
+            print(f"Erro ao processar {alvo['nome']}: {e}")
 
+    # Se não houver lotes filtrados por texto específico nesta rodada, abre uma Issue de status e avisa no Telegram com o link de busca direta
     if encontrados == 0:
-        print("Nenhum lote nominal específico bateu com os filtros textuais nesta rodada.")
-        enviar_alerta_telegram(
-            f"🔍 *Status do Extrator - {horario_atual}*\n\n"
-            f"Varredura concluída para Itatiba e Jundiaí. Sem novos lotes nominais filtrados na rodada, mas o monitoramento segue ativo!"
-        )
+        for alvo in alvos:
+            msg_status = (
+                f"🔍 *BUSCA REGIONAL - {horario_atual}*\n\n"
+                f"🏛️ *Portal:* {alvo['nome']}\n"
+                f"🔗 *[ABRIR FILTRO OFICIAL NO SITE]({alvo['url']})*\n\n"
+                f"⚡ _Nenhum lote nominal na janela atual. Use o link para conferir._"
+            )
+            enviar_telegram(msg_status)
+            
+            # Cria Issue de acompanhamento da varredura
+            criar_github_issue(
+                f"Varredura Sem Lotes Novos - {alvo['cidade']} ({datetime.now().strftime('%d/%m/%Y')})",
+                f"O robô executou a varredura em {alvo['nome']} ({alvo['url']}) em {horario_atual}, mas não encontrou novos lotes nominais na listagem estática. O link de acesso direto permanece monitorado."
+            )
+
+    print(f"Varredura finalizada. Total de ações executadas: {encontrados}")
 
 
 if __name__ == "__main__":
-    executar_extracao_real()
+    executar_cacador()
