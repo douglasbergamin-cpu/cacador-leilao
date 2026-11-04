@@ -2,18 +2,18 @@ name: Caçador de Leilões
 
 on:
   schedule:
-    - cron: '0 9,15 * * *' # Roda todo dia às 09:00 e às 15:00
-  workflow_dispatch: # Permite clicar no botão "Run workflow" manualmente
+    - cron: '0 9,15 * * *' # Roda às 09:00 e 15:00
+  workflow_dispatch: # Permite rodar manualmente no botão
 
 jobs:
   run-leilao:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do Repositório
-        uses: actions/checkout@v4.2.2 # Versão atualizada sem o aviso de Node.js
+        uses: actions/checkout@v4.2.2
 
       - name: Configurar Python
-        uses: actions/setup-python@v5.4.0 # Versão atualizada para o runner novo
+        uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.10'
 
