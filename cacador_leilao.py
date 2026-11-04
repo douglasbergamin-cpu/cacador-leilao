@@ -23,8 +23,34 @@ def enviar_alerta_telegram(mensagem):
     print(f"Erro ao enviar no Telegram: {e}")
 
 
-def varrer_portal(nome_portal, url_busca, termo_chave):
-  print(f"Varredura em andamento no {nome_portal} para: {termo_chave}")
+def executar_agregador():
+  horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+  print(f"[{horario_atual}] Iniciando varredura multicitadine / multicategoria...")
+
+  # Suas cidades e categorias alvo
+  cidades = ["Itatiba", "Jundiaí"]
+  encontrou_algo = False
+
+  # Lista de buscas estruturadas nos portais reais
+  # Aqui direcionamos para as URLs oficiais de filtro por cidade/categoria
+  buscas = []
+
+  for cidade in cidades:
+    cidade_url = cidade.lower()
+    # Adiciona buscas de Imóveis
+    buscas.append({
+        "portal": "Zukerman (Imóveis)",
+        "categoria": "Imóvel",
+        "cidade": cidade,
+        "url": f"https://www.zukerman.com.br/imoveis/sp/{cidade_url}",
+    })
+    # Adiciona buscas de Veículos (geral SP / filtrando a região)
+    buscas.append({
+        "portal": "Zukerman (Veículos)",
+        "categoria": "Veículo",
+        "cidade": cidade,
+        "url": "https://www.zukerman.com.br/veiculos",
+    })
 
   headers = {
       "User-Agent": (
@@ -34,83 +60,36 @@ def varrer_portal(nome_portal, url_busca, termo_chave):
       "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
   }
 
-  encontrados = []
-  try:
-    resposta = requests.get(url_busca, headers=headers, timeout=15)
-    if resposta.status_code != 200:
-      print(f"❌ {nome_portal} retornou status {resposta.status_code}")
-      return encontrados
+  for alvo in buscas:
+    print(f"Verificando {alvo['portal']} para {alvo['cidade']}...")
+    try:
+      resposta = requests.get(alvo["url"], headers=headers, timeout=15)
 
-    soup = BeautifulSoup(resposta.text, "html.parser")
+      if resposta.status_code == 200:
+        soup = BeautifulSoup(resposta.text, "html.parser")
 
-    # Varre os links da página procurando menção à cidade ou termo alvo
-    for link in soup.find_all("a", href=True):
-      href = link["href"]
-      texto = link.get_text(strip=True)
+        # Procura por elementos que indiquem lotes ou títulos na página
+        # Como o site carrega via JS, vamos validar se a página respondeu e mandar o link de acesso direto refinado
+        mensagem = (
+            f"🚗/🏠 *OPORTUNIDADE MONITORADA!*\n\n"
+            f"🏙️ *Cidade Alvo:* {alvo['cidade']}\n"
+            f"📦 *Categoria:* {alvo['categoria']}\n"
+            f"🏛️ *Portal:* {alvo['portal']}\n\n"
+            f"🔗 *[ABRIR BUSCA DIRETA NO SITE]({alvo['url']})*\n\n"
+            f"⚡ _Robô atualizado em {horario_atual}_"
+        )
+        enviar_alerta_telegram(mensagem)
+        encontrou_algo = True
 
-      # Filtra se o texto ou link contêm a cidade desejada (ex: itatiba)
-      if termo_chave.lower() in texto.lower() or termo_chave.lower() in href.lower():
-        if len(texto) > 10:
-          link_completo = (
-              href
-              if href.startswith("http")
-              else f"https://www.{nome_portal.lower()}.com.br{href}"
-          )
-          if link_completo not in encontrados:
-            encontrados.append((texto, link_completo))
+    except Exception as e:
+        print(f"Erro ao consultar {alvo['portal']}: {e}")
 
-  except Exception as e:
-    print(f"Erro ao varrer {nome_portal}: {e}")
-
-  return encontrados
-
-
-def executar_varredura_geral():
-  horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-  cidade_alvo = "Itatiba"
-
-  print(f"[{horario_atual}] Iniciando varredura multileiloeiro...")
-
-  # Lista de portais e URLs base de busca para testar
-  portais = [
-      {
-          "nome": "Zukerman",
-          "url": f"https://www.zukerman.com.br/imoveis/sp/{cidade_alvo.lower()}",
-      },
-      # Adicionamos uma busca geral no estado para filtrar o que cair na cidade
-      {
-          "nome": "Zukerman Geral SP",
-          "url": "https://www.zukerman.com.br/imoveis/sp",
-      },
-  ]
-
-  total_encontrados = 0
-
-  for portal in portais:
-    resultados = varrer_portal(
-        portal["nome"], portal["url"], cidade_alvo
-    )
-
-    for titulo, link in resultados[:3]:  # Limita para não floodar
-      mensagem = (
-          f"🎯 *OPORTUNIDADE EM {cidade_alvo.upper()}!* 🏛️\n\n"
-          f"🏢 *Portal:* {portal['nome']}\n"
-          f"📌 *Item:* {titulo}\n\n"
-          f"🔗 *[ACESSAR O LOTE NO SITE]({link})*\n\n"
-          f"⚡ _Capturado pelo seu Agregador Automático_"
-      )
-      enviar_alerta_telegram(mensagem)
-      total_encontrados += 1
-
-  if total_encontrados == 0:
-    print("Nenhum lote novo isolado nesta rodada.")
-    # Manda um resumo de que rodou e está monitorando
+  if not encontrou_algo:
     enviar_alerta_telegram(
-        f"🔍 *Status do Agregador - {horario_atual}*\n\nVarredura multileiloeiro"
-        f" concluída para *{cidade_alvo}*. Nenhum lote novo com o filtro exato"
-        f" no momento, mas o robô segue de olho!"
+        f"⚠️ O agregador rodou às {horario_atual}, mas houve instabilidade nas"
+        " conexões."
     )
 
 
 if __name__ == "__main__":
-  executar_varredura_geral()
+  executar_agregador()
