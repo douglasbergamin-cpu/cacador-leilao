@@ -17,10 +17,10 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Instalar Dependências
+      - name: Instalar Dependencia Direta
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install requests
 
-      - name: Executar Robô
+      - name: Executar Robo
         run: python cacador_leilao.py
