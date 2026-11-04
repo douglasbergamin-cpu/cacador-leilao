@@ -1,9 +1,12 @@
-name: Caçador de Leilões Real
+name: Caçador de Leilões com Issues
 
 on:
   schedule:
     - cron: '0 9,15 * * *'
   workflow_dispatch:
+
+permissions:
+  issues: write
 
 jobs:
   run-leilao:
@@ -17,10 +20,12 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Instalar Dependencias
+      - name: Instalar Dependências
         run: |
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      - name: Executar Robo
+      - name: Executar Robô de Captura
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python cacador_leilao.py
