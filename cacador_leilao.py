@@ -40,32 +40,40 @@ def executar_varredura():
     for cidade in cidades:
         url_busca = f"https://www.zukerman.com.br/api/imoveis?cidade={cidade}"
         try:
+            print(f"Consultando: {url_busca}")
             resposta = requests.get(url_busca, headers=headers, timeout=15)
+            print(f"Status Code: {resposta.status_code}")
+
             if resposta.status_code == 200:
-                dados = resposta.json()
-                lotes = dados.get("lotes", []) if isinstance(dados, dict) else []
+                try:
+                    dados = resposta.json()
+                    lotes = dados.get("lotes", []) if isinstance(dados, dict) else []
 
-                for lote in lotes:
-                    titulo = lote.get("titulo", f"Lote em {cidade.title()}")
-                    link = lote.get("url", f"https://www.zukerman.com.br/imoveis/sp/{cidade}")
+                    for lote in lotes:
+                        titulo = lote.get("titulo", f"Lote em {cidade.title()}")
+                        link = lote.get("url", f"https://www.zukerman.com.br/imoveis/sp/{cidade}")
 
-                    mensagem = (
-                        f"🎯 *OPORTUNIDADE ENCONTRADA!* 🏛️\n\n"
-                        f"📍 *Cidade:* {cidade.title()}\n"
-                        f"📌 *Item:* {titulo}\n\n"
-                        f"🔗 *[ACESSAR LOTE AQUI]({link})*\n\n"
-                        f"⚡ _Capturado em {horario_atual}_"
-                    )
-                    enviar_alerta_telegram(mensagem)
-                    encontrados += 1
+                        mensagem = (
+                            f"🎯 *OPORTUNIDADE ENCONTRADA!* 🏛️\n\n"
+                            f"📍 *Cidade:* {cidade.title()}\n"
+                            f"📌 *Item:* {titulo}\n\n"
+                            f"🔗 *[ACESSAR LOTE AQUI]({link})*\n\n"
+                            f"⚡ _Capturado em {horario_atual}_"
+                        )
+                        enviar_alerta_telegram(mensagem)
+                        encontrados += 1
+                except Exception as json_err:
+                    print(f"Aviso: A resposta não veio em formato JSON válido: {json_err}")
+            else:
+                print(f"Aviso: Servidor retornou status {resposta.status_code}")
         except Exception as e:
             print(f"Erro na requisição para {cidade}: {e}")
 
-    if encontrados == 0:
-        enviar_alerta_telegram(
-            f"🔍 *Status da Varredura - {horario_atual}*\n\n"
-            f"Robô executado com sucesso. Nenhum novo lote listado para Itatiba/Jundiaí no momento."
-        )
+    # Envia notificação de conclusão limpa
+    enviar_alerta_telegram(
+        f"🔍 *Status da Varredura - {horario_atual}*\n\n"
+        f"Robô executado com sucesso! Varredura concluída para Itatiba e Jundiaí."
+    )
 
 
 if __name__ == "__main__":
