@@ -23,18 +23,15 @@ def enviar_alerta_telegram(mensagem):
         print(f"Erro ao enviar no Telegram: {e}")
 
 
-def executar_varredura_real():
+def executar_varredura_direta():
     horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    print(f"[{horario_atual}] Iniciando varredura real de leilões...")
+    print(f"[{horario_atual}] Iniciando varredura inteligente de leilões...")
 
-    # Cidades e termos que você deseja monitorar
-    cidades_alvo = ["itatiba", "jundiaí", "jundiai"]
-
-    # Páginas alvo de busca na Zukerman (Imóveis e Veículos)
-    urls_alvo = [
-        "https://www.zukerman.com.br/imoveis/sp/itatiba",
-        "https://www.zukerman.com.br/imoveis/sp/jundiai",
-        "https://www.zukerman.com.br/veiculos"
+    # Vamos monitorar diretamente as páginas oficiais de busca por região/imóveis/veículos
+    alvos = [
+        {"nome": "Zukerman - Imóveis Itatiba", "url": "https://www.zukerman.com.br/imoveis/sp/itatiba"},
+        {"nome": "Zukerman - Imóveis Jundiaí", "url": "https://www.zukerman.com.br/imoveis/sp/jundiai"},
+        {"nome": "Zukerman - Veículos SP", "url": "https://www.zukerman.com.br/veiculos"}
     ]
 
     headers = {
@@ -42,54 +39,59 @@ def executar_varredura_real():
         "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
     }
 
-    encontrados = 0
+    total_enviados = 0
 
-    for url_alvo in urls_alvo:
+    for alvo in alvos:
+        print(f"Consultando: {alvo['nome']} ({alvo['url']})")
         try:
-            print(f"Varrendo URL: {url_alvo}")
-            resposta = requests.get(url_alvo, headers=headers, timeout=15)
-
-            if resposta.status_code != 200:
-                print(f"⚠️ Alerta: URL retornou status {resposta.status_code}")
-                continue
-
-            soup = BeautifulSoup(resposta.text, "html.parser")
-
-            # Procura por todos os links na página que possam conter lotes
-            for link in soup.find_all("a", href=True):
-                href = link["href"]
-                texto = link.get_text(strip=True)
-                texto_lower = texto.lower()
-
-                # Verifica se o link menciona alguma das cidades alvo ou se é uma página de lote válida
-                if any(cidade in texto_lower or cidade in href.lower() for cidade in cidades_alvo):
-                    if len(texto) > 15:  # Garante que é um título descritivo real
+            resposta = requests.get(alvo["url"], headers=headers, timeout=15)
+            
+            if resposta.status_code == 200:
+                soup = BeautifulSoup(resposta.text, "html.parser")
+                
+                # Como o HTML estático pode vir enxuto, vamos buscar qualquer link de card ou detalhe de lote
+                links_encontrados = set()
+                for a in soup.find_all("a", href=True):
+                    href = a["href"]
+                    texto = a.get_text(strip=True)
+                    
+                    # Filtra apenas links que parecem ser de lotes/imóveis/veículos específicos
+                    if ("/imovel/" in href or "/lote/" in href or "/veiculo/" in href) and len(texto) > 10:
                         link_completo = href if href.startswith("http") else f"https://www.zukerman.com.br{href}"
+                        links_encontrados.add((texto, link_completo))
 
-                        mensagem = (
-                            f"🎯 *OPORTUNIDADE ENCONTRADA!* 🏛️\n\n"
-                            f"📌 *Item:* {texto}\n\n"
-                            f"🔗 *[ACESSAR LOTE E FOTOS]({link_completo})*\n\n"
-                            f"⚡ _Capturado pelo seu Agregador Automatizado_"
-                        )
-                        enviar_alerta_telegram(mensagem)
-                        encontrados += 1
-                        print(f"Lote enviado: {texto[:40]}...")
+                print(f"Encontrados {len(links_encontrados)} links potenciais em {alvo['nome']}.")
 
-                        if encontrados >= 6:  # Limita para não floodar
-                            break
+                # Envia os links encontrados para o Telegram
+                for titulo, link in list(links_encontrados)[:5]: # Limita aos 5 primeiros por alvo
+                    mensagem = (
+                        f"🎯 *OPORTUNIDADE CAPTURADA!* 🏛️\n\n"
+                        f"📍 *Origem:* {alvo['nome']}\n"
+                        f"📌 *Item:* {titulo}\n\n"
+                        f"🔗 *[ACESSAR LOTE DIRETAMENTE]({link})*\n\n"
+                        f"⚡ _Atualizado em {horario_atual}_"
+                    )
+                    enviar_alerta_telegram(mensagem)
+                    total_enviados += 1
+            else:
+                print(f"Erro HTTP {resposta.status_code} em {alvo['nome']}")
 
         except Exception as e:
-            print(f"Erro ao processar {url_alvo}: {e}")
+            print(f"Erro ao processar {alvo['nome']}: {e}")
 
-    if encontrados == 0:
-        enviar_alerta_telegram(
-            f"🔍 *Varredura Real Concluída - {horario_atual}*\n\n"
-            f"O robô varreu os portais de Itatiba e Jundiaí com sucesso. Nenhum lote novo nominado na região nesta rodada, mas seguimos monitorando!"
-        )
+    # Se mesmo assim não achar nada pelos filtros de texto, manda o link direto de acesso das buscas regionais para você conferir com 1 clique
+    if total_enviados == 0:
+        for alvo in alvos:
+            mensagem = (
+                f"🔍 *BUSCA DIRETA REGIONAL - {horario_atual}*\n\n"
+                f"🏛️ *Portal:* {alvo['nome']}\n"
+                f"🔗 *[ABRIR FILTRO DA REGIÃO NO SITE]({alvo['url']})*\n\n"
+                f"⚡ _Acesse para conferir os lotes ativos no momento._"
+            )
+            enviar_alerta_telegram(mensagem)
     else:
-        print(f"Total de {encontrados} lotes enviados com sucesso nesta execução.")
+        print(f"Total de {total_enviados} alertas enviados com sucesso.")
 
 
 if __name__ == "__main__":
-    executar_varredura_real()
+    executar_varredura_direta()
