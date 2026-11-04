@@ -1,6 +1,8 @@
 from datetime import datetime
-import requests
+import os
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
+import requests
 
 # ======================================================
 # CONFIGURAÇÕES DO TELEGRAM
@@ -23,73 +25,83 @@ def enviar_alerta_telegram(mensagem):
     print(f"Erro ao enviar no Telegram: {e}")
 
 
-def executar_agregador():
+def executar_cacador_real():
   horario_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-  print(f"[{horario_atual}] Iniciando varredura multicitadine / multicategoria...")
+  print(
+      f"[{horario_atual}] Iniciando caçador com navegador real (Playwright)..."
+  )
 
-  # Suas cidades e categorias alvo
-  cidades = ["Itatiba", "Jundiaí"]
-  encontrou_algo = False
+  # Cidades e termos que você quer monitorar
+  cidades_alvo = ["itatiba", "jundiaí"]
 
-  # Lista de buscas estruturadas nos portais reais
-  # Aqui direcionamos para as URLs oficiais de filtro por cidade/categoria
-  buscas = []
+  # URLs alvo para varredura real
+  urls_para_visitar = [
+      "https://www.zukerman.com.br/imoveis/sp/itatiba",
+      "https://www.zukerman.com.br/veiculos",
+  ]
 
-  for cidade in cidades:
-    cidade_url = cidade.lower()
-    # Adiciona buscas de Imóveis
-    buscas.append({
-        "portal": "Zukerman (Imóveis)",
-        "categoria": "Imóvel",
-        "cidade": cidade,
-        "url": f"https://www.zukerman.com.br/imoveis/sp/{cidade_url}",
-    })
-    # Adiciona buscas de Veículos (geral SP / filtrando a região)
-    buscas.append({
-        "portal": "Zukerman (Veículos)",
-        "categoria": "Veículo",
-        "cidade": cidade,
-        "url": "https://www.zukerman.com.br/veiculos",
-    })
+  encontrados = 0
 
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-          " like Gecko) Chrome/122.0.0.0 Safari/537.36"
-      ),
-      "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-  }
+  with sync_playwright() as p:
+    # Abre um navegador invisível (Chromium)
+    browser = p.chromium.launch(headless=True)
+    page = browser.new_page()
 
-  for alvo in buscas:
-    print(f"Verificando {alvo['portal']} para {alvo['cidade']}...")
-    try:
-      resposta = requests.get(alvo["url"], headers=headers, timeout=15)
+    for url in urls_para_visitar:
+      print(f"Acessando via navegador real: {url}")
+      try:
+        # Acessa a página e espera o conteúdo JS carregar por completo
+        page.goto(url, timeout=60000)
+        page.wait_for_timeout(5000)  # Espera 5 segundos para o JS renderizar
 
-      if resposta.status_code == 200:
-        soup = BeautifulSoup(resposta.text, "html.parser")
+        html_conteudo = page.content()
+        soup = BeautifulSoup(html_conteudo, "html.parser")
 
-        # Procura por elementos que indiquem lotes ou títulos na página
-        # Como o site carrega via JS, vamos validar se a página respondeu e mandar o link de acesso direto refinado
-        mensagem = (
-            f"🚗/🏠 *OPORTUNIDADE MONITORADA!*\n\n"
-            f"🏙️ *Cidade Alvo:* {alvo['cidade']}\n"
-            f"📦 *Categoria:* {alvo['categoria']}\n"
-            f"🏛️ *Portal:* {alvo['portal']}\n\n"
-            f"🔗 *[ABRIR BUSCA DIRETA NO SITE]({alvo['url']})*\n\n"
-            f"⚡ _Robô atualizado em {horario_atual}_"
-        )
-        enviar_alerta_telegram(mensagem)
-        encontrou_algo = True
+        # Procura por blocos de lotes/cards reais no HTML renderizado
+        # Vamos varrer todos os links da página renderizada
+        for link in soup.find_all("a", href=True):
+          href = link["href"]
+          texto = link.get_text(strip=True)
 
-    except Exception as e:
-        print(f"Erro ao consultar {alvo['portal']}: {e}")
+          # Verifica se o texto do lote menciona alguma das suas cidades alvo ou termos de interesse
+          texto_minusculo = texto.lower()
+          if any(cidade in texto_minusculo for cidade in cidades_alvo):
+            if (
+                len(texto) > 20
+            ):  # Garante que é um título de lote real e não um botão do site
+              link_completo = (
+                  href
+                  if href.startswith("http")
+                  else f"https://www.zukerman.com.br{href}"
+              )
 
-  if not encontrou_algo:
+              mensagem = (
+                  f"🎯 *OPORTUNIDADE REAL ENCONTRADA!* 🏛️\n\n"
+                  f"📌 *Lote/Item:* {texto}\n\n"
+                  f"🔗 *[VER LOTE E FOTOS NO SITE]({link_completo})*\n\n"
+                  f"⚡ _Capturado pelo navegador automatizado_"
+              )
+              enviar_alerta_telegram(mensagem)
+              encontrados += 1
+              print(f"Enviado para o Telegram: {texto[:40]}...")
+
+              # Limita para não disparar dezenas de mensagens repetidas na mesma rodada
+              if encontrados >= 5:
+                break
+
+      except Exception as e:
+        print(f"Erro ao processar a URL {url}: {e}")
+
+    browser.close()
+
+  if encontrados == 0:
+    print("Nenhum lote específico com o nome da cidade no texto nesta rodada.")
     enviar_alerta_telegram(
-        f"⚠️ O agregador rodou às {horario_atual}, mas houve instabilidade nas"
-        " conexões."
+        f"🔍 *Status do Caçador - {horario_atual}*\n\nVarredura com navegador real"
+        f" concluída para Itatiba/Jundiaí. Sem lotes nominais novos na Zuk no"
+        f" momento, mas o robô de alta precisão está ativo!"
     )
 
 
 if __name__ == "__main__":
-  executar_agregador()
+  executar_cacador_real()
